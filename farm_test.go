@@ -18,11 +18,25 @@ func TestCreate(t *testing.T) {
 		Printf("tmpDir: %v\n", tmpDir)
 
 		Convey("if targetDir already exists", func() {
-			err := Create(DefaultFarmConfig, tmpDir)
 
-			Convey("error out", func() {
-				So(err, ShouldNotBeNil)
-				So(errors.Cause(err), ShouldEqual, ErrTargetExist)
+			Convey("...but is empty...", func() {
+				err := Create(DefaultFarmConfig, tmpDir)
+
+				Convey("continue on fine", func() {
+					So(err, ShouldBeNil)
+				})
+			})
+
+			Convey("...but isn't empty...", func() {
+				randomFile, err := os.Create(filepath.Join(tmpDir, "random-file"))
+				So(err, ShouldBeNil)
+				So(randomFile.Close(), ShouldBeNil)
+
+				Convey("error out", func() {
+					err = Create(DefaultFarmConfig, tmpDir)
+					So(err, ShouldNotBeNil)
+					So(errors.Cause(err), ShouldEqual, ErrTargetExist)
+				})
 			})
 		})
 

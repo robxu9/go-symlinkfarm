@@ -1,11 +1,12 @@
 package symlinkfarm
 
 import (
+	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/juju/loggo"
+	"github.com/karrick/godirwalk"
 
 	"github.com/pkg/errors"
 )
@@ -35,10 +36,24 @@ var DefaultFarmConfig = FarmConfig{
 func Create(config FarmConfig, targetDir string, sourceDirs ...string) error {
 	logger.Debugf("Create called with %+v, %v, %v", config, targetDir, sourceDirs)
 
-	// ensure that the target directory doesn't exist
+	// ensure that the target directory doesn't exist (or if it exists, is empty)
+	createTargetDir := true
 	if _, err := os.Lstat(targetDir); !os.IsNotExist(err) {
 		logger.Debugf("targetDir(%v) exists", targetDir)
-		return errors.WithStack(ErrTargetExist)
+
+		targetDirFile, err := os.Open(targetDir)
+		if err != nil {
+			logger.Debugf("targetDir(%v) can't open: %v", targetDir, err)
+			return errors.WithStack(err)
+		}
+
+		if _, err = targetDirFile.Readdirnames(1); err != io.EOF {
+			// not an empty directory
+			logger.Debugf("targetDir(%v) not empty: %v", targetDir, err)
+			return errors.WithStack(ErrTargetExist)
+		}
+
+		createTargetDir = false
 	}
 
 	// create a map which will contain the files we have in the target and
@@ -58,12 +73,16 @@ func Create(config FarmConfig, targetDir string, sourceDirs ...string) error {
 	}
 	logger.Debugf("simplifyFarm returned %+v", actions)
 
-	// create the target directory
-	if err = os.Mkdir(targetDir, os.ModePerm); err != nil {
-		logger.Debugf("mkdir(%v) failed: %v", targetDir, err)
-		return errors.WithStack(err)
+	// create the target directory (if necessary)
+	if createTargetDir {
+		if err = os.Mkdir(targetDir, os.ModePerm); err != nil {
+			logger.Debugf("mkdir(%v) failed: %v", targetDir, err)
+			return errors.WithStack(err)
+		}
+		logger.Debugf("mkdir(%v) succeeded", targetDir)
+	} else {
+		logger.Debugf("mkdir(%v) not necessary - targetDir existed but was empty")
 	}
-	logger.Debugf("mkdir(%v) succeeded", targetDir)
 
 	// and let's go...
 	for i, v := range actions {
@@ -85,32 +104,30 @@ func determineFarm(sourceDirs ...string) (map[string]sourceInfoS, error) {
 
 	// attempt to map by going through every single source directory
 	for _, sourceDir := range sourceDirs {
-		if err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
-			// do we have an error? if so, fail because we're not going to be able to construct
-			if err != nil {
-				return errors.Wrap(err, path)
-			}
+		if err := godirwalk.Walk(sourceDir, &godirwalk.Options{
+			Callback: func(path string, de *godirwalk.Dirent) error {
+				// strip the source directory out to store for the symlink farm
+				farmPath := strings.TrimPrefix(path, sourceDir)
 
-			// strip the source directory out to store for the symlink farm
-			farmPath := strings.TrimPrefix(path, sourceDir)
+				// if it's an empty string, it's the root directory. that's implied.
+				if farmPath == "" {
+					return nil
+				}
 
-			// if it's an empty string, it's the root directory. that's implied.
-			if farmPath == "" {
+				// add it in
+				if _, ok := files[farmPath]; !ok {
+					files[farmPath] = sourceInfoS{}
+				}
+
+				files[farmPath] = append(files[farmPath], sourceInfo{
+					Path:   farmPath,
+					Source: path,
+					IsDir:  de.IsDir() && !de.IsSymlink(),
+				})
+
 				return nil
-			}
-
-			// add it in
-			if _, ok := files[farmPath]; !ok {
-				files[farmPath] = sourceInfoS{}
-			}
-
-			files[farmPath] = append(files[farmPath], sourceInfo{
-				Path:   farmPath,
-				Source: path,
-				IsDir:  info.IsDir(),
-			})
-
-			return nil
+			},
+			Unsorted: true, // we don't care; we have to sort this later anyway
 		}); err != nil {
 			return nil, errors.Wrap(err, sourceDir)
 		}
