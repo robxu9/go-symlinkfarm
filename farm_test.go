@@ -62,10 +62,26 @@ func TestCreate(t *testing.T) {
 				Printf("targetDir: %v\n", targetDir)
 				err := Create(DefaultFarmConfig, targetDir, folders...)
 
-				Convey("and ensure that ErrFileConflict was returned", func() {
+				Convey("and ensure that ErrFileConflict was returned for the Default Farm Config", func() {
 					So(err, ShouldNotBeNil)
 					So(errors.Cause(err), ShouldEqual, ErrFileConflict)
 				})
+			})
+
+			Convey("call create and target tmpDir/create-test-4", func() {
+				targetDir := filepath.Join(tmpDir, "create-test-2")
+				Printf("targetDir: %v\n", targetDir)
+				farmCfg := DefaultFarmConfig
+				farmCfg.OnConflict = IgnoreBothConflict
+				err := Create(farmCfg, targetDir, folders...)
+
+				Convey("and ensure that the conflict just wasn't copied for Ignore Conflicts", func() {
+					So(err, ShouldBeNil)
+					sharedFile := filepath.Join(targetDir, "shared_dir", "a_shared_file")
+					_, err := os.Open(sharedFile)
+					So(os.IsNotExist(err), ShouldBeTrue)
+				})
+
 			})
 		})
 

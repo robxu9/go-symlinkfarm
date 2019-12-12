@@ -15,3 +15,8 @@ type ConflictHandler func(...string) (string, error)
 func NeverConflict(sourceFiles ...string) (string, error) {
 	return "", ErrFileConflict
 }
+
+// IgnoreBothConflict is a ConflictHandler that simply ignores any conflicts by symlinking nothing.
+func IgnoreBothConflict(sourceFiles ...string) (string, error) {
+	return "", nil
+}

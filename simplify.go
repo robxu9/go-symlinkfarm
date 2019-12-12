@@ -32,7 +32,9 @@ func simplifyFarm(uglyFarm map[string]sourceInfoS, targetDir string, farmConfig 
 					return nil, err
 				}
 			}
-			actions = append(actions, createLinkAction(targetDir, source, farmPath, farmConfig.Linker))
+			if source != "" { // some OnConflict handlers can choose to symlink nothing. weird.
+				actions = append(actions, createLinkAction(targetDir, source, farmPath, farmConfig.Linker))
+			}
 		}
 	}
 
